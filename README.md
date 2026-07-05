@@ -1,6 +1,6 @@
 # 🏆 Crunch Showdown (July 4th Chip Voting App)
 
-A highly polished, interactive, heated-rivalry themed chip voting web application designed for a Fourth of July party. Built with **React**, **TypeScript**, **Tailwind CSS (v4)**, and **shadcn/ui**.
+An interactive, heated-rivalry themed chip voting web application designed for a Fourth of July party. Built with **React**, **TypeScript**, **Tailwind CSS (v4)**, and **shadcn/ui**.
 
 Live URL: **[https://JoeFromDenver.github.io/chips/](https://JoeFromDenver.github.io/chips/)**
 
