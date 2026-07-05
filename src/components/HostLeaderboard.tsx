@@ -26,6 +26,7 @@ export const HostLeaderboard: React.FC<HostLeaderboardProps> = ({ partyCode, onL
     return initial;
   });
   const [totalUsers, setTotalUsers] = useState(0);
+  const [syncError, setSyncError] = useState("");
 
   // OLED Protection settings
   const [layout, setLayout] = useState<"A" | "B">("A");
@@ -53,10 +54,17 @@ export const HostLeaderboard: React.FC<HostLeaderboardProps> = ({ partyCode, onL
   // 2. Subscribe to Firestore votes
   useEffect(() => {
     if (isFirebaseConfigured()) {
-      const unsubscribe = subscribeToPartyVotes(partyCode, (updatedVotes, users) => {
-        setVotes(updatedVotes);
-        setTotalUsers(users);
-      });
+      const unsubscribe = subscribeToPartyVotes(
+        partyCode,
+        (updatedVotes, users) => {
+          setVotes(updatedVotes);
+          setTotalUsers(users);
+          setSyncError("");
+        },
+        (error) => {
+          setSyncError(error?.message || String(error));
+        }
+      );
       return () => unsubscribe();
     }
   }, [partyCode]);
@@ -503,6 +511,16 @@ export const HostLeaderboard: React.FC<HostLeaderboardProps> = ({ partyCode, onL
         paddingTop: `${pixelOffset.y}px`,
       }}
     >
+      {/* Sync connection error notification */}
+      {syncError && (
+        <div className="bg-red-950/80 border-b border-red-900/60 px-6 py-2 text-xs text-red-400 font-semibold z-20 flex items-center justify-between gap-4">
+          <div className="flex items-center gap-2">
+            <span className="w-1.5 h-1.5 rounded-full bg-red-500 animate-ping"></span>
+            <span>Firestore Connection Failure: Sync is disabled. The TV will only show scanned/offline votes. (Error: {syncError})</span>
+          </div>
+        </div>
+      )}
+
       {/* Background Canvas for slow ambient pixel movement (OLED TV Saver) */}
       <canvas ref={canvasRef} className="absolute inset-0 pointer-events-none z-0" />
 

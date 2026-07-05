@@ -5,7 +5,16 @@ import { Input } from "./ui/input";
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle, DialogTrigger } from "./ui/dialog";
 import { Badge } from "./ui/badge";
 import { Settings, Play, Database, Tv, User, RefreshCw } from "lucide-react";
-import { isFirebaseConfigured, initializeFirebase, clearFirebaseConfig, getActiveFirebaseConfig, type FirebaseConfig } from "../services/firebase";
+import {
+  isFirebaseConfigured,
+  initializeFirebase,
+  clearFirebaseConfig,
+  getActiveFirebaseConfig,
+  getFirebaseConfigSource,
+  testFirebaseConnection,
+  type FirebaseConfig,
+  type FirebaseConfigSource
+} from "../services/firebase";
 
 interface WelcomeScreenProps {
   username: string;
@@ -27,6 +36,13 @@ export const WelcomeScreen: React.FC<WelcomeScreenProps> = ({ username, onJoinRo
   const [messagingSenderId, setMessagingSenderId] = useState("");
   const [appId, setAppId] = useState("");
 
+  // Diagnostics and connection health states
+  const [connectionStatus, setConnectionStatus] = useState<"syncing" | "active" | "error" | "local">("syncing");
+  const [connectionError, setConnectionError] = useState("");
+  const [configSource, setConfigSource] = useState<FirebaseConfigSource>("Build-Time Fallback Defaults");
+  const [testingConnection, setTestingConnection] = useState(false);
+  const [testLogs, setTestLogs] = useState<string[]>([]);
+
   useEffect(() => {
     const active = getActiveFirebaseConfig();
     if (active) {
@@ -37,7 +53,34 @@ export const WelcomeScreen: React.FC<WelcomeScreenProps> = ({ username, onJoinRo
       setMessagingSenderId(active.messagingSenderId || "");
       setAppId(active.appId || "");
     }
+    setConfigSource(getFirebaseConfigSource());
   }, []);
+
+  // Startup health check
+  useEffect(() => {
+    const runStartupCheck = async () => {
+      if (isFirebaseConfigured()) {
+        setConnectionStatus("syncing");
+        const activeConfig = getActiveFirebaseConfig();
+        if (activeConfig) {
+          const res = await testFirebaseConnection(activeConfig);
+          if (res.success) {
+            setConnectionStatus("active");
+            setConnectionError("");
+          } else {
+            setConnectionStatus("error");
+            setConnectionError(res.error || "Unknown Firestore error");
+          }
+        } else {
+          setConnectionStatus("local");
+        }
+      } else {
+        setConnectionStatus("local");
+      }
+    };
+    runStartupCheck();
+  }, [dbConfigured]);
+
 
   const handleSaveConfig = (e: React.FormEvent) => {
     e.preventDefault();
@@ -82,6 +125,65 @@ export const WelcomeScreen: React.FC<WelcomeScreenProps> = ({ username, onJoinRo
     setPartyCode(generated);
   };
 
+  const runDiagnostics = async () => {
+    setTestingConnection(true);
+    setTestLogs(["🔄 Starting connection diagnostics...", `ℹ️ Configuration Source: ${configSource}`]);
+    
+    const config: FirebaseConfig = {
+      apiKey: apiKey.trim(),
+      authDomain: authDomain.trim(),
+      projectId: projectId.trim(),
+      storageBucket: storageBucket.trim(),
+      messagingSenderId: messagingSenderId.trim(),
+      appId: appId.trim(),
+    };
+    
+    setTestLogs(prev => [...prev, `ℹ️ Project ID: ${config.projectId}`, `⏳ Sending test query to Firestore...`]);
+    
+    const res = await testFirebaseConnection(config);
+    if (res.success) {
+      setTestLogs(prev => [
+        ...prev, 
+        "✅ Connection Successful!", 
+        "🎉 Firebase credentials are valid and database is reachable."
+      ]);
+      setConnectionStatus("active");
+      setConnectionError("");
+    } else {
+      setTestLogs(prev => [
+        ...prev,
+        `❌ Connection Failed!`,
+        `Error Detail: ${res.error}`
+      ]);
+      
+      if (configSource === "Build-Time Fallback Defaults" || config.projectId === "crunch-showdown") {
+        setTestLogs(prev => [
+          ...prev,
+          "⚠️ NOTICE: You are using the default project 'crunch-showdown'.",
+          "This indicates GitHub Secrets were NOT injected during build.",
+          "👉 Make sure to configure the Repository Secrets in GitHub with these names:",
+          "   - FIREBASE_API_KEY",
+          "   - FIREBASE_PROJECT_ID",
+          "   - FIREBASE_AUTH_DOMAIN",
+          "   - FIREBASE_STORAGE_BUCKET",
+          "   - FIREBASE_MESSAGING_SENDER_ID",
+          "   - FIREBASE_APP_ID"
+        ]);
+      } else {
+        setTestLogs(prev => [
+          ...prev,
+          "👉 Suggestions:",
+          "1. Check if Firestore API is enabled in the Google Developer Console.",
+          "2. Verify Firestore database rules permit access.",
+          "3. Double check the values for API Key and App ID."
+        ]);
+      }
+      setConnectionStatus("error");
+      setConnectionError(res.error || "Unknown Firestore error");
+    }
+    setTestingConnection(false);
+  };
+
   const handleAction = (isHost: boolean) => {
     const code = partyCode.trim().toUpperCase();
     if (!code) {
@@ -104,11 +206,22 @@ export const WelcomeScreen: React.FC<WelcomeScreenProps> = ({ username, onJoinRo
             <span className="w-1.5 h-1.5 rounded-full bg-red-500 animate-ping"></span>
             JULY 4TH
           </Badge>
-          {dbConfigured ? (
+          {connectionStatus === "syncing" && (
+            <Badge variant="outline" className="border-blue-500/50 text-blue-400 gap-1 px-2 py-0.5 text-[10px] animate-pulse">
+              <RefreshCw className="w-3 h-3 animate-spin" /> Syncing...
+            </Badge>
+          )}
+          {connectionStatus === "active" && (
             <Badge variant="outline" className="border-emerald-500/50 text-emerald-400 gap-1 px-2 py-0.5 text-[10px]">
               <Database className="w-3 h-3" /> Sync Active
             </Badge>
-          ) : (
+          )}
+          {connectionStatus === "error" && (
+            <Badge variant="outline" className="border-red-500/50 text-red-400 gap-1 px-2 py-0.5 text-[10px]" title={connectionError}>
+              <Database className="w-3 h-3 text-red-500 animate-pulse" /> Sync Error
+            </Badge>
+          )}
+          {connectionStatus === "local" && (
             <Badge variant="outline" className="border-yellow-500/50 text-yellow-400 gap-1 px-2 py-0.5 text-[10px]">
               <Database className="w-3 h-3" /> Local Mode
             </Badge>
@@ -126,9 +239,55 @@ export const WelcomeScreen: React.FC<WelcomeScreenProps> = ({ username, onJoinRo
               <DialogHeader>
                 <DialogTitle className="text-xl font-bold uppercase tracking-tight">Database Settings</DialogTitle>
                 <DialogDescription className="text-zinc-400 text-xs">
-                  Configure a custom Firebase project to synchronize votes in real-time. If unconfigured, the app falls back to Local / QR Code scanning.
+                  Configure a custom Firebase project to synchronize votes in real-time.
                 </DialogDescription>
               </DialogHeader>
+
+              {/* Active Config Diagnostics Box */}
+              <div className="my-2 p-3 rounded-lg bg-zinc-950 border border-zinc-800 text-xs space-y-1.5">
+                <div className="flex justify-between items-center">
+                  <span className="text-zinc-400 font-bold">Active Project ID:</span>
+                  <span className="font-mono text-zinc-200">{projectId || "(Not Configured)"}</span>
+                </div>
+                <div className="flex justify-between items-center">
+                  <span className="text-zinc-400 font-bold">Config Source:</span>
+                  <Badge variant="outline" className={`text-[10px] border-zinc-800 font-bold ${
+                    configSource === "Build-Time Secrets" ? "text-emerald-400 border-emerald-500/30" : 
+                    configSource === "Custom Local Storage" ? "text-blue-400 border-blue-500/30" : 
+                    "text-yellow-400 border-yellow-500/30"
+                  }`}>
+                    {configSource}
+                  </Badge>
+                </div>
+                {dbConfigured && (
+                  <div className="flex justify-between items-center pt-1.5 border-t border-zinc-900">
+                    <span className="text-zinc-400 font-bold">Diagnostics:</span>
+                    <Button
+                      type="button"
+                      variant="link"
+                      onClick={runDiagnostics}
+                      disabled={testingConnection}
+                      className="p-0 h-auto text-xs text-blue-400 hover:text-blue-300 font-bold uppercase"
+                    >
+                      {testingConnection ? "Running..." : "Run Diagnostics"}
+                    </Button>
+                  </div>
+                )}
+                {testLogs.length > 0 && (
+                  <div className="mt-2 p-2 bg-black rounded border border-zinc-900 font-mono text-[10px] text-zinc-300 max-h-32 overflow-y-auto space-y-1">
+                    {testLogs.map((log, idx) => (
+                      <div key={idx} className={
+                        log.startsWith("❌") ? "text-red-400 font-bold" :
+                        log.startsWith("✅") ? "text-emerald-400 font-bold" :
+                        log.startsWith("⚠️") ? "text-yellow-400 font-bold" :
+                        log.startsWith("ℹ️") ? "text-blue-300" : "text-zinc-400"
+                      }>
+                        {log}
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
               
               <form onSubmit={handleSaveConfig} className="space-y-3 mt-2 text-sm">
                 <div>
@@ -263,11 +422,24 @@ export const WelcomeScreen: React.FC<WelcomeScreenProps> = ({ username, onJoinRo
               </p>
             )}
 
-            {!dbConfigured && (
+            {connectionStatus === "local" && (
               <div className="p-3 rounded-lg bg-yellow-950/20 border border-yellow-900/40 text-yellow-400/90 text-[11px] leading-relaxed flex items-start gap-2">
                 <Settings className="w-4 h-4 mt-0.5 flex-shrink-0" />
                 <div>
                   <span className="font-bold">Notice:</span> Firebase is not configured. The app will sync scores locally via guest QR code scanning (perfectly fine for manual hosting!). Open Database Settings (cog icon) to activate live real-time sync.
+                </div>
+              </div>
+            )}
+
+            {connectionStatus === "error" && (
+              <div className="p-3 rounded-lg bg-red-950/20 border border-red-900/40 text-red-400/90 text-[11px] leading-relaxed flex items-start gap-2">
+                <Settings className="w-4 h-4 mt-0.5 flex-shrink-0 text-red-400" />
+                <div>
+                  <span className="font-bold text-red-400">Sync Connection Error:</span>
+                  <p className="mt-1 text-zinc-400 font-mono text-[10px] break-all leading-normal">{connectionError}</p>
+                  <p className="mt-1.5 text-zinc-300">
+                    Open Database Settings (cog icon) and click <strong>Run Diagnostics</strong> to inspect the setup.
+                  </p>
                 </div>
               </div>
             )}

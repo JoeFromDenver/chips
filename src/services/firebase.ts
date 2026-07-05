@@ -1,5 +1,4 @@
-import { initializeApp, getApp, getApps } from "firebase/app";
-import type { FirebaseApp } from "firebase/app";
+import { initializeApp, getApp, getApps, type FirebaseApp } from "firebase/app";
 import {
   getFirestore,
   doc,
@@ -40,6 +39,39 @@ const isEnvConfigComplete = (config: Partial<FirebaseConfig>): config is Firebas
 
 let firebaseApp: FirebaseApp | null = null;
 let firestoreDb: Firestore | null = null;
+
+// Configuration source classification
+export type FirebaseConfigSource = "Build-Time Secrets" | "Custom Local Storage" | "Build-Time Fallback Defaults";
+
+export const getFirebaseConfigSource = (): FirebaseConfigSource => {
+  const saved = localStorage.getItem(CONFIG_STORAGE_KEY);
+  if (saved) return "Custom Local Storage";
+  
+  const hasEnvKeys = !!(
+    import.meta.env.VITE_FIREBASE_API_KEY &&
+    import.meta.env.VITE_FIREBASE_PROJECT_ID &&
+    import.meta.env.VITE_FIREBASE_APP_ID
+  );
+  
+  if (hasEnvKeys) {
+    const isFallback = 
+      import.meta.env.VITE_FIREBASE_API_KEY === "AIzaSyCS2CnUi7faNrCtcvoIcPcaswL9bRRIZJo" &&
+      import.meta.env.VITE_FIREBASE_PROJECT_ID === "crunch-showdown";
+    return isFallback ? "Build-Time Fallback Defaults" : "Build-Time Secrets";
+  }
+  
+  return "Build-Time Fallback Defaults";
+};
+
+// Helper for racing promises with a timeout
+const withTimeout = <T>(promise: Promise<T>, ms: number, errMsg: string): Promise<T> => {
+  return Promise.race([
+    promise,
+    new Promise<never>((_, reject) =>
+      setTimeout(() => reject(new Error(errMsg)), ms)
+    ),
+  ]);
+};
 
 // Retrieve configuration: either environment variables or localStorage
 export const getActiveFirebaseConfig = (): FirebaseConfig | null => {
@@ -91,6 +123,45 @@ export const initializeFirebase = (customConfig?: FirebaseConfig): Firestore | n
   }
 };
 
+// Test connection to Firebase Firestore
+export const testFirebaseConnection = async (
+  config: FirebaseConfig
+): Promise<{ success: boolean; error?: string }> => {
+  const tempAppName = `connection-test-${Date.now()}-${Math.random().toString(36).substring(2, 9)}`;
+  let tempApp: FirebaseApp | null = null;
+  
+  try {
+    tempApp = initializeApp(config, tempAppName);
+    const db = getFirestore(tempApp);
+    const testDocRef = doc(db, "_connection_test_", "test");
+    
+    // Race getDoc against a 4-second timeout
+    await withTimeout(
+      getDoc(testDocRef),
+      4000,
+      "Timeout: Could not reach Cloud Firestore backend (4s)"
+    );
+    
+    return { success: true };
+  } catch (error: any) {
+    // If it is a permission-denied error, the database credentials are valid and connection was established!
+    const errorMsg = error?.message || String(error);
+    const isPermissionDenied = error?.code === "permission-denied" || errorMsg.includes("PERMISSION_DENIED");
+    
+    if (isPermissionDenied) {
+      if (errorMsg.includes("API has not been used") || errorMsg.includes("disabled")) {
+        return {
+          success: false,
+          error: "Cloud Firestore API is disabled or not initialized in the Google Console for this project ID.",
+        };
+      }
+      return { success: true };
+    }
+    
+    return { success: false, error: errorMsg };
+  }
+};
+
 // Clear saved config and reset
 export const clearFirebaseConfig = () => {
   localStorage.removeItem(CONFIG_STORAGE_KEY);
@@ -136,11 +207,15 @@ export const saveVotesToFirestore = async (
 
   try {
     const userVoteRef = doc(db, "parties", cleanParty, "userVotes", cleanUser);
-    await setDoc(userVoteRef, {
-      votes,
-      updatedAt: serverTimestamp(),
-      username: username.trim(),
-    });
+    await withTimeout(
+      setDoc(userVoteRef, {
+        votes,
+        updatedAt: serverTimestamp(),
+        username: username.trim(),
+      }),
+      5000,
+      "Timeout: Could not save votes to Firestore (5s)"
+    );
     return true;
   } catch (error) {
     console.error("Error saving votes to Firestore:", error);
@@ -161,7 +236,11 @@ export const fetchUserVotesFromFirestore = async (
 
   try {
     const userVoteRef = doc(db, "parties", cleanParty, "userVotes", cleanUser);
-    const snap = await getDoc(userVoteRef);
+    const snap = await withTimeout(
+      getDoc(userVoteRef),
+      5000,
+      "Timeout: Could not fetch user votes from Firestore (5s)"
+    );
     if (snap.exists()) {
       const data = snap.data();
       return data.votes as VoteData;
@@ -184,7 +263,8 @@ export interface AggregatedVotes {
 // Subscribe to real-time updates for a party
 export const subscribeToPartyVotes = (
   partyCode: string,
-  onUpdate: (votes: AggregatedVotes, totalUsers: number) => void
+  onUpdate: (votes: AggregatedVotes, totalUsers: number) => void,
+  onError?: (error: any) => void
 ) => {
   const db = getDb();
   if (!db) {
@@ -220,5 +300,6 @@ export const subscribeToPartyVotes = (
     onUpdate(totals, userCount);
   }, (error) => {
     console.error("Error in onSnapshot for party votes:", error);
+    if (onError) onError(error);
   });
 };

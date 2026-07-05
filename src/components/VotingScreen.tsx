@@ -48,22 +48,29 @@ export const VotingScreen: React.FC<VotingScreenProps> = ({ username, partyCode,
     const loadInitialVotes = async () => {
       if (isFirebaseConfigured()) {
         setSyncStatus("syncing");
-        const existing = await fetchUserVotesFromFirestore(partyCode, username);
-        if (existing) {
-          // Merge with initial template to ensure no missing keys
-          setVotes((prev) => {
-            const merged = { ...prev };
-            Object.keys(existing).forEach((key) => {
-              if (merged[key]) {
-                merged[key] = { ...merged[key], ...existing[key] };
-              }
+        try {
+          const existing = await fetchUserVotesFromFirestore(partyCode, username);
+          if (existing) {
+            // Merge with initial template to ensure no missing keys
+            setVotes((prev) => {
+              const merged = { ...prev };
+              Object.keys(existing).forEach((key) => {
+                if (merged[key]) {
+                  merged[key] = { ...merged[key], ...existing[key] };
+                }
+              });
+              return merged;
             });
-            return merged;
-          });
-          setSyncStatus("saved");
-        } else {
-          setSyncStatus("idle");
+            setSyncStatus("saved");
+          } else {
+            setSyncStatus("idle");
+          }
+        } catch (error) {
+          console.error("Error loading initial votes:", error);
+          setSyncStatus("error");
         }
+      } else {
+        setSyncStatus("idle");
       }
       isInitialLoad.current = false;
     };
