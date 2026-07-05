@@ -30,7 +30,6 @@ export const HostLeaderboard: React.FC<HostLeaderboardProps> = ({ partyCode, onL
   // OLED Protection settings
   const [layout, setLayout] = useState<"A" | "B">("A");
   const [pixelOffset, setPixelOffset] = useState({ x: 0, y: 0 });
-  const [rotationTimer, setRotationTimer] = useState(600); // 10 minutes in seconds (600s)
   const [isVictoryMode, setIsVictoryMode] = useState(false);
   const [showScanner, setShowScanner] = useState(false);
   const [joinQrUrl, setJoinQrUrl] = useState("");
@@ -77,14 +76,8 @@ export const HostLeaderboard: React.FC<HostLeaderboardProps> = ({ partyCode, onL
   // 4. Layout auto-rotation timer (every 10 minutes)
   useEffect(() => {
     const timer = setInterval(() => {
-      setRotationTimer((prev) => {
-        if (prev <= 1) {
-          setLayout((l) => (l === "A" ? "B" : "A"));
-          return 600; // Reset to 10 minutes
-        }
-        return prev - 1;
-      });
-    }, 1000);
+      setLayout((l) => (l === "A" ? "B" : "A"));
+    }, 600000); // 10 minutes
 
     return () => clearInterval(timer);
   }, []);
@@ -300,12 +293,7 @@ export const HostLeaderboard: React.FC<HostLeaderboardProps> = ({ partyCode, onL
     return max === 0 ? 1 : max;
   };
 
-  // Helper to format remaining time
-  const formatTime = (secs: number) => {
-    const m = Math.floor(secs / 60);
-    const s = secs % 60;
-    return `${m}:${s.toString().padStart(2, "0")}`;
-  };
+
 
   // Render layouts
   const renderLayoutA = () => {
@@ -536,20 +524,12 @@ export const HostLeaderboard: React.FC<HostLeaderboardProps> = ({ partyCode, onL
         </div>
 
         <div className="flex items-center gap-2">
-          {/* Layout rotating status (OLED protection details) */}
-          {!isVictoryMode && (
-            <Badge variant="outline" className="border-zinc-800 text-zinc-500 text-[10px] gap-1 px-3 py-1 font-bold">
-              <RotateCw className="w-3 h-3 animate-spin duration-10000" />
-              <span>OLED ROTATION: {formatTime(rotationTimer)}</span>
-            </Badge>
-          )}
 
           {/* Toggle Layout manually */}
           {!isVictoryMode && (
             <Button
               onClick={() => {
                 setLayout((l) => (l === "A" ? "B" : "A"));
-                setRotationTimer(600); // reset rotation timer
               }}
               variant="outline"
               size="icon"
@@ -610,7 +590,7 @@ export const HostLeaderboard: React.FC<HostLeaderboardProps> = ({ partyCode, onL
         <div className="flex flex-col">
           <p className="text-xs uppercase font-extrabold tracking-widest text-zinc-500">Scan to vote in this room</p>
           <p className="text-[10px] text-zinc-600 leading-relaxed max-w-sm">
-            Everyone gets unlimited votes. Rotate layouts, ambient particles, and 1px shifts are active to protect OLED pixels.
+            Everyone gets unlimited votes. Grab a plate, taste the contenders, and cast your votes to crown the ultimate champion!
           </p>
         </div>
 
