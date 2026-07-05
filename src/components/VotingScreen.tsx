@@ -230,7 +230,7 @@ export const VotingScreen: React.FC<VotingScreenProps> = ({ username, partyCode,
             Tap buttons to cast unlimited votes!
           </Badge>
           <p className="text-xs text-zinc-400">
-            Swipe through cards to view chip stats and the legendary Trader Joe's corporate pitch history.
+            Scroll through the cards to view chip stats and the legendary Trader Joe's corporate pitch history.
           </p>
         </div>
 
