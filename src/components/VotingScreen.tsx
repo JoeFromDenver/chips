@@ -286,9 +286,9 @@ export const VotingScreen: React.FC<VotingScreenProps> = ({ username, partyCode,
 
                 <CardContent className="space-y-3 pb-4 flex-grow">
                   {/* Chip cover photo */}
-                  <div className="w-full h-48 rounded-lg overflow-hidden border border-zinc-805/30 bg-zinc-950/20 relative flex items-center justify-center mb-2">
+                  <div className="w-full h-48 rounded-lg overflow-hidden border border-zinc-800/30 bg-zinc-950/20 relative flex items-center justify-center mb-2">
                     <img 
-                      src={`./assets/chips/${chip.id}.jpg`} 
+                      src={`${import.meta.env.BASE_URL}assets/chips/${chip.id}.jpg`} 
                       alt={chip.name} 
                       className="w-full h-full object-contain hover:scale-105 transition-all duration-500"
                     />
