@@ -40,10 +40,39 @@ const isEnvConfigComplete = (config: Partial<FirebaseConfig>): config is Firebas
 let firebaseApp: FirebaseApp | null = null;
 let firestoreDb: Firestore | null = null;
 
+// Public Zero-Config Sync Mode using ntfy.sh
+let usePublicSync = false;
+
+export const checkShouldUsePublicSync = (): boolean => {
+  if (localStorage.getItem(CONFIG_STORAGE_KEY)) {
+    return false;
+  }
+  const hasEnvKeys = !!(
+    import.meta.env.VITE_FIREBASE_API_KEY &&
+    import.meta.env.VITE_FIREBASE_PROJECT_ID &&
+    import.meta.env.VITE_FIREBASE_APP_ID
+  );
+  if (hasEnvKeys) {
+    const isFallback = 
+      import.meta.env.VITE_FIREBASE_API_KEY === "AIzaSyCS2CnUi7faNrCtcvoIcPcaswL9bRRIZJo" &&
+      import.meta.env.VITE_FIREBASE_PROJECT_ID === "crunch-showdown";
+    return isFallback;
+  }
+  return true;
+};
+
+// Initialize the state
+usePublicSync = checkShouldUsePublicSync();
+
 // Configuration source classification
-export type FirebaseConfigSource = "Build-Time Secrets" | "Custom Local Storage" | "Build-Time Fallback Defaults";
+export type FirebaseConfigSource = 
+  | "Build-Time Secrets" 
+  | "Custom Local Storage" 
+  | "Build-Time Fallback Defaults" 
+  | "ntfy.sh Public Sync (Zero Config)";
 
 export const getFirebaseConfigSource = (): FirebaseConfigSource => {
+  if (usePublicSync) return "ntfy.sh Public Sync (Zero Config)";
   const saved = localStorage.getItem(CONFIG_STORAGE_KEY);
   if (saved) return "Custom Local Storage";
   
@@ -75,6 +104,9 @@ const withTimeout = <T>(promise: Promise<T>, ms: number, errMsg: string): Promis
 
 // Retrieve configuration: either environment variables or localStorage
 export const getActiveFirebaseConfig = (): FirebaseConfig | null => {
+  if (usePublicSync) {
+    return null;
+  }
   if (isEnvConfigComplete(envConfig)) {
     return envConfig;
   }
@@ -87,7 +119,6 @@ export const getActiveFirebaseConfig = (): FirebaseConfig | null => {
         return parsed;
       }
     } catch {
-      // Clear invalid config
       localStorage.removeItem(CONFIG_STORAGE_KEY);
     }
   }
@@ -96,8 +127,18 @@ export const getActiveFirebaseConfig = (): FirebaseConfig | null => {
 
 // Try to initialize Firebase
 export const initializeFirebase = (customConfig?: FirebaseConfig): Firestore | null => {
+  if (customConfig) {
+    localStorage.setItem(CONFIG_STORAGE_KEY, JSON.stringify(customConfig));
+    usePublicSync = false;
+  } else {
+    usePublicSync = checkShouldUsePublicSync();
+  }
+
+  if (usePublicSync) {
+    return null;
+  }
+
   const config = customConfig || getActiveFirebaseConfig();
-  
   if (!config) {
     return null;
   }
@@ -108,34 +149,49 @@ export const initializeFirebase = (customConfig?: FirebaseConfig): Firestore | n
     } else {
       firebaseApp = getApp();
     }
-    
     firestoreDb = getFirestore(firebaseApp);
-    
-    // Save to localStorage if it's a custom config passed in
-    if (customConfig) {
-      localStorage.setItem(CONFIG_STORAGE_KEY, JSON.stringify(customConfig));
-    }
-    
     return firestoreDb;
   } catch (error) {
-    console.error("Failed to initialize Firebase:", error);
+    console.error("Firebase initialization failed:", error);
     return null;
   }
 };
 
-// Test connection to Firebase Firestore
-export const testFirebaseConnection = async (
-  config: FirebaseConfig
-): Promise<{ success: boolean; error?: string }> => {
-  const tempAppName = `connection-test-${Date.now()}-${Math.random().toString(36).substring(2, 9)}`;
-  let tempApp: FirebaseApp | null = null;
-  
+// Connection diagnostic tool
+export const testFirebaseConnection = async (customConfig?: FirebaseConfig): Promise<{ success: boolean; error?: string }> => {
+  if (usePublicSync && !customConfig) {
+    try {
+      const response = await fetch("https://ntfy.sh/");
+      if (response.ok) {
+        return { success: true };
+      }
+      return { success: false, error: "Public sync server (ntfy.sh) returned an error status." };
+    } catch (e: any) {
+      return { success: false, error: "Network error connecting to ntfy.sh: " + (e?.message || String(e)) };
+    }
+  }
+
+  let db: Firestore | null = null;
+  let tempApp: any = null;
+
+  if (customConfig) {
+    try {
+      const tempAppName = `connection-test-${Date.now()}-${Math.random().toString(36).substring(2, 9)}`;
+      tempApp = initializeApp(customConfig, tempAppName);
+      db = getFirestore(tempApp);
+    } catch (err: any) {
+      return { success: false, error: "Failed to initialize test Firebase app: " + (err.message || String(err)) };
+    }
+  } else {
+    db = getDb();
+  }
+
+  if (!db) {
+    return { success: false, error: "Firebase credentials/config are completely missing." };
+  }
+
   try {
-    tempApp = initializeApp(config, tempAppName);
-    const db = getFirestore(tempApp);
-    const testDocRef = doc(db, "_connection_test_", "test");
-    
-    // Race getDoc against a 4-second timeout
+    const testDocRef = doc(db, "parties", "CONNECTION_TEST_ROOM_XYZ", "userVotes", "testUser");
     await withTimeout(
       getDoc(testDocRef),
       4000,
@@ -144,7 +200,6 @@ export const testFirebaseConnection = async (
     
     return { success: true };
   } catch (error: any) {
-    // If it is a permission-denied error, the database credentials are valid and connection was established!
     const errorMsg = error?.message || String(error);
     const isPermissionDenied = error?.code === "permission-denied" || errorMsg.includes("PERMISSION_DENIED");
     
@@ -167,9 +222,11 @@ export const clearFirebaseConfig = () => {
   localStorage.removeItem(CONFIG_STORAGE_KEY);
   firebaseApp = null;
   firestoreDb = null;
+  usePublicSync = checkShouldUsePublicSync();
 };
 
 export const getDb = (): Firestore | null => {
+  if (usePublicSync) return null;
   if (!firestoreDb) {
     initializeFirebase();
   }
@@ -178,7 +235,7 @@ export const getDb = (): Firestore | null => {
 
 // Check configuration status
 export const isFirebaseConfigured = (): boolean => {
-  return getActiveFirebaseConfig() !== null;
+  return usePublicSync || getActiveFirebaseConfig() !== null;
 };
 
 export interface VoteData {
@@ -190,15 +247,168 @@ export interface VoteData {
   };
 }
 
+// -------------------------------------------------------------
+// ntfy.sh client helper functions
+// -------------------------------------------------------------
+const saveVotesToNtfy = async (partyCode: string, username: string, votes: VoteData): Promise<boolean> => {
+  const cleanParty = partyCode.trim().toUpperCase();
+  const cleanUser = username.trim().toLowerCase();
+  const topic = `crunch_showdown_party_${cleanParty.toLowerCase()}`;
+
+  try {
+    const response = await fetch(`https://ntfy.sh/${topic}`, {
+      method: "POST",
+      body: JSON.stringify({
+        room: cleanParty,
+        user: cleanUser,
+        votes: votes,
+        timestamp: Date.now()
+      })
+    });
+    return response.ok;
+  } catch (error) {
+    console.error("Error saving votes to ntfy:", error);
+    return false;
+  }
+};
+
+const fetchUserVotesFromNtfy = async (partyCode: string, username: string): Promise<VoteData | null> => {
+  const cleanParty = partyCode.trim().toUpperCase();
+  const cleanUser = username.trim().toLowerCase();
+  const topic = `crunch_showdown_party_${cleanParty.toLowerCase()}`;
+
+  try {
+    const response = await fetch(`https://ntfy.sh/${topic}/json?poll=1`);
+    if (!response.ok) return null;
+    const text = await response.text();
+    const lines = text.split("\n").filter(Boolean);
+    let latestVotes: VoteData | null = null;
+    let latestTime = 0;
+
+    for (const line of lines) {
+      try {
+        const entry = JSON.parse(line);
+        if (entry.event === "message" && entry.message) {
+          const payload = JSON.parse(entry.message);
+          if (payload.user === cleanUser && payload.timestamp > latestTime) {
+            latestVotes = payload.votes;
+            latestTime = payload.timestamp;
+          }
+        }
+      } catch (e) {
+        // Skip invalid rows
+      }
+    }
+    return latestVotes;
+  } catch (error) {
+    console.error("Error fetching votes from ntfy:", error);
+    return null;
+  }
+};
+
+export interface AggregatedVotes {
+  [chipId: string]: {
+    best: number;
+    spicy: number;
+    weird: number;
+    leastBest: number;
+  };
+}
+
+const subscribeToNtfyPartyVotes = (
+  partyCode: string,
+  onUpdate: (votes: AggregatedVotes, totalUsers: number) => void
+) => {
+  const cleanParty = partyCode.trim().toUpperCase();
+  const topic = `crunch_showdown_party_${cleanParty.toLowerCase()}`;
+  
+  const userVotesMap: { [username: string]: VoteData } = {};
+
+  const processPayload = (payload: any) => {
+    if (payload.user && payload.votes) {
+      userVotesMap[payload.user] = payload.votes;
+      
+      const totals: AggregatedVotes = {};
+      let userCount = 0;
+      
+      Object.keys(userVotesMap).forEach((user) => {
+        userCount++;
+        const userVotes = userVotesMap[user];
+        Object.keys(userVotes).forEach((chipId) => {
+          if (!totals[chipId]) {
+            totals[chipId] = { best: 0, spicy: 0, weird: 0, leastBest: 0 };
+          }
+          const chipVotes = userVotes[chipId];
+          totals[chipId].best += chipVotes.best || 0;
+          totals[chipId].spicy += chipVotes.spicy || 0;
+          totals[chipId].weird += chipVotes.weird || 0;
+          totals[chipId].leastBest += chipVotes.leastBest || 0;
+        });
+      });
+      
+      onUpdate(totals, userCount);
+    }
+  };
+
+  // Fetch cached votes first
+  fetch(`https://ntfy.sh/${topic}/json?poll=1`)
+    .then((r) => r.text())
+    .then((text) => {
+      const lines = text.split("\n").filter(Boolean);
+      lines.forEach((line) => {
+        try {
+          const entry = JSON.parse(line);
+          if (entry.event === "message" && entry.message) {
+            const payload = JSON.parse(entry.message);
+            processPayload(payload);
+          }
+        } catch (e) {
+          // ignore
+        }
+      });
+    })
+    .catch((err) => console.error("Failed to fetch historical ntfy votes:", err));
+
+  // Connect to SSE stream
+  const eventSource = new EventSource(`https://ntfy.sh/${topic}/sse`);
+  
+  eventSource.onmessage = (event) => {
+    try {
+      const data = JSON.parse(event.data);
+      if (data.event === "message" && data.message) {
+        const payload = JSON.parse(data.message);
+        processPayload(payload);
+      }
+    } catch (err) {
+      console.error("Error parsing real-time ntfy message:", err);
+    }
+  };
+
+  eventSource.onerror = (err) => {
+    console.error("Ntfy SSE Connection error:", err);
+  };
+
+  return () => {
+    eventSource.close();
+  };
+};
+
+// -------------------------------------------------------------
+// Public functions with ntfy.sh fallback checks
+// -------------------------------------------------------------
+
 // Save user votes
 export const saveVotesToFirestore = async (
   partyCode: string,
   username: string,
   votes: VoteData
 ): Promise<boolean> => {
+  if (usePublicSync) {
+    return saveVotesToNtfy(partyCode, username, votes);
+  }
+
   const db = getDb();
   if (!db) {
-    // If not configured, save locally
     return false;
   }
 
@@ -228,6 +438,10 @@ export const fetchUserVotesFromFirestore = async (
   partyCode: string,
   username: string
 ): Promise<VoteData | null> => {
+  if (usePublicSync) {
+    return fetchUserVotesFromNtfy(partyCode, username);
+  }
+
   const db = getDb();
   if (!db) return null;
 
@@ -251,21 +465,16 @@ export const fetchUserVotesFromFirestore = async (
   return null;
 };
 
-export interface AggregatedVotes {
-  [chipId: string]: {
-    best: number;
-    spicy: number;
-    weird: number;
-    leastBest: number;
-  };
-}
-
 // Subscribe to real-time updates for a party
 export const subscribeToPartyVotes = (
   partyCode: string,
   onUpdate: (votes: AggregatedVotes, totalUsers: number) => void,
   onError?: (error: any) => void
 ) => {
+  if (usePublicSync) {
+    return subscribeToNtfyPartyVotes(partyCode, onUpdate);
+  }
+
   const db = getDb();
   if (!db) {
     return () => {};
