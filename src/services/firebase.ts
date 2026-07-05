@@ -23,14 +23,14 @@ export interface FirebaseConfig {
 // LocalStorage key for saving custom configs at runtime
 const CONFIG_STORAGE_KEY = "crunch_showdown_firebase_config";
 
-// Read build-time config from environment variables
+// Read build-time config from environment variables, fallback to public defaults
 const envConfig: Partial<FirebaseConfig> = {
-  apiKey: import.meta.env.VITE_FIREBASE_API_KEY,
-  authDomain: import.meta.env.VITE_FIREBASE_AUTH_DOMAIN,
-  projectId: import.meta.env.VITE_FIREBASE_PROJECT_ID,
-  storageBucket: import.meta.env.VITE_FIREBASE_STORAGE_BUCKET,
-  messagingSenderId: import.meta.env.VITE_FIREBASE_MESSAGING_SENDER_ID,
-  appId: import.meta.env.VITE_FIREBASE_APP_ID,
+  apiKey: import.meta.env.VITE_FIREBASE_API_KEY || "AIzaSyCS2CnUi7faNrCtcvoIcPcaswL9bRRIZJo",
+  authDomain: import.meta.env.VITE_FIREBASE_AUTH_DOMAIN || "crunch-showdown.firebaseapp.com",
+  projectId: import.meta.env.VITE_FIREBASE_PROJECT_ID || "crunch-showdown",
+  storageBucket: import.meta.env.VITE_FIREBASE_STORAGE_BUCKET || "crunch-showdown.firebasestorage.app",
+  messagingSenderId: import.meta.env.VITE_FIREBASE_MESSAGING_SENDER_ID || "246942803723",
+  appId: import.meta.env.VITE_FIREBASE_APP_ID || "1:246942803723:web:1147f8d8d2fdebf5e3a40e",
 };
 
 // Check if a full config is provided by environment variables
