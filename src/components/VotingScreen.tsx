@@ -36,6 +36,7 @@ export const VotingScreen: React.FC<VotingScreenProps> = ({ username, partyCode,
   const [syncStatus, setSyncStatus] = useState<"idle" | "syncing" | "saved" | "error">("idle");
   const [qrCodeUrl, setQrCodeUrl] = useState<string>("");
   const [showQrDialog, setShowQrDialog] = useState(false);
+  const [copied, setCopied] = useState(false);
   const [particles, setParticles] = useState<EmojiParticle[]>([]);
   const particleIdRef = useRef(0);
   
@@ -423,6 +424,25 @@ export const VotingScreen: React.FC<VotingScreenProps> = ({ username, partyCode,
           
           <div className="text-[10px] text-zinc-500 font-bold uppercase mt-2">
             User: {username} | Room: {partyCode}
+          </div>
+
+          <div className="mt-4 pt-4 border-t border-zinc-800 flex flex-col gap-2">
+            <Button
+              onClick={() => {
+                const payload = { r: partyCode, u: username, v: votes };
+                const jsonStr = JSON.stringify(payload);
+                const base64Code = btoa(unescape(encodeURIComponent(jsonStr)));
+                navigator.clipboard.writeText(base64Code);
+                setCopied(true);
+                setTimeout(() => setCopied(false), 2000);
+              }}
+              className="bg-zinc-800 hover:bg-zinc-700 text-xs font-bold uppercase tracking-wider py-2"
+            >
+              {copied ? "✅ Copied to Clipboard!" : "📋 Copy Backup Text Code"}
+            </Button>
+            <p className="text-[9px] text-zinc-500 leading-normal text-center">
+              If the host scanner camera doesn't work, click this button to copy your vote code and text/chat it to the host.
+            </p>
           </div>
         </DialogContent>
       </Dialog>

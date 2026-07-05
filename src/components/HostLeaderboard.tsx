@@ -4,6 +4,7 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "./ui/
 import { Badge } from "./ui/badge";
 import { Progress } from "./ui/progress";
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "./ui/dialog";
+import { Input } from "./ui/input";
 import { CHIPS } from "../data/chips";
 import { subscribeToPartyVotes, isFirebaseConfigured } from "../services/firebase";
 import type { AggregatedVotes, VoteData } from "../services/firebase";
@@ -34,8 +35,43 @@ export const HostLeaderboard: React.FC<HostLeaderboardProps> = ({ partyCode, onL
   const [isVictoryMode, setIsVictoryMode] = useState(false);
   const [showScanner, setShowScanner] = useState(false);
   const [joinQrUrl, setJoinQrUrl] = useState("");
+  const [manualCode, setManualCode] = useState("");
+  const [importError, setImportError] = useState("");
+  const [importSuccess, setImportSuccess] = useState(false);
 
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
+
+  const handleManualImport = () => {
+    setImportError("");
+    setImportSuccess(false);
+    
+    const code = manualCode.trim();
+    if (!code) {
+      setImportError("Please paste a vote code first.");
+      return;
+    }
+
+    try {
+      const jsonStr = decodeURIComponent(escape(atob(code)));
+      const payload = JSON.parse(jsonStr);
+      
+      if (!payload.r || !payload.u || !payload.v) {
+        setImportError("Invalid code format.");
+        return;
+      }
+      
+      handleOfflineMerge(payload.r, payload.u, payload.v);
+      setImportSuccess(true);
+      setManualCode("");
+      
+      setTimeout(() => {
+        setImportSuccess(false);
+        setShowScanner(false);
+      }, 1500);
+    } catch (err) {
+      setImportError("Failed to decode code. Verify you copied the full string.");
+    }
+  };
 
   // 1. Generate Join QR code
   useEffect(() => {
@@ -637,13 +673,42 @@ export const HostLeaderboard: React.FC<HostLeaderboardProps> = ({ partyCode, onL
           </DialogHeader>
           
           {showScanner && (
-            <TallyScanner
-              onScanComplete={(room, user, guestVotes) => {
-                handleOfflineMerge(room, user, guestVotes);
-                setShowScanner(false);
-              }}
-              onClose={() => setShowScanner(false)}
-            />
+            <div className="space-y-4">
+              <TallyScanner
+                onScanComplete={(room, user, guestVotes) => {
+                  handleOfflineMerge(room, user, guestVotes);
+                  setShowScanner(false);
+                }}
+                onClose={() => setShowScanner(false)}
+              />
+              
+              <div className="pt-4 border-t border-zinc-800 space-y-2 text-left">
+                <label className="text-xs font-bold uppercase tracking-wider text-zinc-400 block">
+                  Or Paste Backup Vote Code:
+                </label>
+                <div className="flex gap-2">
+                  <Input
+                    type="text"
+                    placeholder="Paste code from guest..."
+                    value={manualCode}
+                    onChange={(e: React.ChangeEvent<HTMLInputElement>) => setManualCode(e.target.value)}
+                    className="bg-zinc-950 border-zinc-800 text-xs flex-grow font-mono"
+                  />
+                  <Button
+                    onClick={handleManualImport}
+                    className="bg-blue-600 hover:bg-blue-500 text-xs font-bold uppercase px-4 h-9"
+                  >
+                    Import
+                  </Button>
+                </div>
+                {importError && (
+                  <p className="text-red-400 text-[10px] font-bold mt-1">{importError}</p>
+                )}
+                {importSuccess && (
+                  <p className="text-emerald-400 text-[10px] font-bold mt-1">✅ Imported votes successfully!</p>
+                )}
+              </div>
+            </div>
           )}
         </DialogContent>
       </Dialog>
